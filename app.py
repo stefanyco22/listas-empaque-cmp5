@@ -77,88 +77,72 @@ def procesar_archivo_consolidado(uploaded_file):
         st.error(f"Error al procesar archivo consolidado: {str(e)}")
         return None
 
-def encontrar_fila_encabezado(df):
-    """Encuentra la fila de encabezado, manejando encabezados de 2 filas"""
-    for i in range(min(5, len(df))):  # Revisar primeras 5 filas
-        fila_actual = df.iloc[i].astype(str).apply(normalizar_texto).tolist()
-        fila_siguiente = df.iloc[i+1].astype(str).apply(normalizar_texto).tolist() if i+1 < len(df) else []
-        
-        # Buscar patrones de columnas esperadas
-        patrones = ['CAJA', 'PARTE', 'CANTIDAD', 'EMPACADA']
-        
-        # Verificar si la fila actual contiene patrones
-        encontrados_actual = sum(1 for patron in patrones if any(patron in celda for celda in fila_actual))
-        
-        # Verificar combinación con fila siguiente
-        combinacion = fila_actual + fila_siguiente
-        encontrados_combinacion = sum(1 for patron in patrones if any(patron in celda for celda in combinacion))
-        
-        if encontrados_actual >= 2:
-            return i, 1  # Encabezado en una fila
-        elif encontrados_combinacion >= 3:
-            return i, 2  # Encabezado en dos filas
-    
-    return None, None
-
-def detectar_columnas_lista(df, fila_inicio, num_filas_encabezado):
-    """Detecta las columnas No. de Caja, Número de Parte y Cantidad Empacada"""
-    if num_filas_encabezado == 1:
-        encabezados = df.iloc[fila_inicio].astype(str).apply(normalizar_texto).tolist()
-    else:  # 2 filas
-        encabezados = []
-        for j in range(len(df.columns)):
-            celda1 = normalizar_texto(df.iloc[fila_inicio, j])
-            celda2 = normalizar_texto(df.iloc[fila_inicio + 1, j])
-            encabezado_combinado = f"{celda1} {celda2}".strip()
-            encabezados.append(encabezado_combinado)
-    
-    # Buscar columnas
-    caja_idx = None
-    parte_idx = None
-    cantidad_idx = None
-    
-    for i, encabezado in enumerate(encabezados):
-        encabezado_clean = encabezado.upper().replace(' ', '')
-        
-        if any(palabra in encabezado for palabra in ['CAJA', 'NO', 'NUMERO', 'NRO']):
-            caja_idx = i
-        elif any(palabra in encabezado for palabra in ['PARTE', 'CODIGO', 'COD', 'ARTICULO']):
-            parte_idx = i
-        elif any(palabra in encabezado for palabra in ['CANTIDAD', 'EMPACADA', 'CANT', 'QTY']):
-            cantidad_idx = i
-    
-    return caja_idx, parte_idx, cantidad_idx
-
-def procesar_lista_empaque(df, nombre_archivo, df_consolidado):
-    """Procesa una lista de empaque individual"""
+def procesar_lista_empaque_estructura_fija(df, nombre_archivo, df_consolidado):
+    """Procesa lista de empaque con estructura fija conocida"""
     try:
-        # Encontrar fila de encabezado
-        fila_encabezado, num_filas = encontrar_fila_encabezado(df)
+        st.write(f"🔍 Procesando: {nombre_archivo} (estructura fija)")
         
-        if fila_encabezado is None:
-            return None, f"No se pudo encontrar la fila de encabezado en {nombre_archivo}"
+        # Estructura fija conocida:
+        # - Encabezados en filas 14 y 15 (índices 13 y 14 en base 0)
+        # - Fila 16 vacía (índice 15)
+        # - Datos desde fila 17 (índice 16)
         
-        # Detectar columnas
-        caja_idx, parte_idx, cantidad_idx = detectar_columnas_lista(df, fila_encabezado, num_filas)
+        if len(df) < 17:
+            return None, f"El archivo {nombre_archivo} no tiene suficientes filas (mínimo 17 requeridas)"
         
-        if None in [caja_idx, parte_idx, cantidad_idx]:
-            return None, f"No se pudieron detectar todas las columnas necesarias en {nombre_archivo}"
+        # Verificar que tenemos los encabezados correctos en las filas 14 y 15
+        fila_14 = df.iloc[13].astype(str).apply(normalizar_texto).tolist()
+        fila_15 = df.iloc[14].astype(str).apply(normalizar_texto).tolist()
         
-        # Leer datos (saltando encabezados)
-        datos_inicio = fila_encabezado + num_filas
+        st.write("Fila 14 (encabezado):", fila_14)
+        st.write("Fila 15 (encabezado):", fila_15)
+        
+        # Asignar columnas fijas según la estructura conocida
+        # Columna A (0): No. de Caja / PALLET
+        # Columna B (1): Número de Parte
+        # Columna D (3): Cantidad Empacada
+        
+        caja_idx = 0      # Columna A
+        parte_idx = 1     # Columna B  
+        cantidad_idx = 3  # Columna D
+        
+        st.write(f"Columnas fijas - Caja: {caja_idx} (A), Parte: {parte_idx} (B), Cantidad: {cantidad_idx} (D)")
+        
+        # Leer datos desde fila 17 (índice 16)
+        datos_inicio = 16
         df_datos = df.iloc[datos_inicio:].copy()
         
+        st.write(f"📊 Datos desde fila {datos_inicio + 1}, total filas: {len(df_datos)}")
+        
         if len(df_datos) == 0:
-            return None, f"No hay datos después del encabezado en {nombre_archivo}"
+            return None, f"No hay datos después de la fila 17 en {nombre_archivo}"
         
         # Seleccionar y renombrar columnas
         df_procesado = df_datos.iloc[:, [caja_idx, parte_idx, cantidad_idx]].copy()
         df_procesado.columns = ['NO_DE_CAJA', 'NUMERO_DE_PARTE', 'CANTIDAD_EMPACADA']
         
         # Limpiar datos
+        # Eliminar filas completamente vacías
+        df_procesado = df_procesado.dropna(how='all')
+        
+        # Eliminar filas donde falta número de parte o cantidad
         df_procesado = df_procesado.dropna(subset=['NUMERO_DE_PARTE', 'CANTIDAD_EMPACADA'])
-        df_procesado['NO_DE_CAJA'] = df_procesado['NO_DE_CAJA'].ffill()  # Forward fill para cajas
+        
+        # Rellenar valores de PALLET hacia abajo (forward fill)
+        df_procesado['NO_DE_CAJA'] = df_procesado['NO_DE_CAJA'].ffill()
+        
+        # Normalizar números de parte
         df_procesado['NUMERO_DE_PARTE'] = df_procesado['NUMERO_DE_PARTE'].apply(normalizar_texto)
+        
+        # Convertir cantidad a numérico y limpiar
+        df_procesado['CANTIDAD_EMPACADA'] = pd.to_numeric(df_procesado['CANTIDAD_EMPACADA'], errors='coerce')
+        df_procesado = df_procesado.dropna(subset=['CANTIDAD_EMPACADA'])
+        
+        st.write(f"✅ Datos procesados: {len(df_procesado)} registros")
+        
+        # Mostrar preview de datos procesados
+        st.write("Preview de datos procesados:")
+        st.dataframe(df_procesado.head(10))
         
         # Unir con consolidado
         df_final = pd.merge(
@@ -181,22 +165,27 @@ def procesar_lista_empaque(df, nombre_archivo, df_consolidado):
         columnas_ordenadas = ['NO_DE_CAJA', 'NUMERO_DE_PARTE', 'DESCRIPCION', 'CANTIDAD_EMPACADA'] + columnas_adicionales
         df_final = df_final[columnas_ordenadas]
         
+        st.write("✅ Lista procesada exitosamente con estructura fija")
         return df_final, None
         
     except Exception as e:
+        st.error(f"❌ Error procesando {nombre_archivo} con estructura fija: {str(e)}")
+        import traceback
+        st.write("Detalles del error:", traceback.format_exc())
         return None, f"Error al procesar {nombre_archivo}: {str(e)}"
 
 def main():
     st.set_page_config(page_title="Consolidador de Listas de Empaque", layout="wide")
     
-    st.title("📦 Consolidador de Listas de Empaque")
-    st.markdown("Consolida múltiples listas de empaque con un archivo principal CONSOLIDADO.xlsx")
+    st.title("📦 Consolidador de Listas de Empaque - ESTRUCTURA FIJA")
+    st.markdown("**Estructura esperada:** Encabezados en filas 14-15, datos desde fila 17, columnas A/B/D")
     
     # Sidebar para configuraciones
     with st.sidebar:
         st.header("Configuración")
         mostrar_preview = st.checkbox("Mostrar vista previa", value=True)
         mostrar_consolidado_preview = st.checkbox("Mostrar preview del consolidado", value=True)
+        modo_debug = st.checkbox("Modo Debug (muestra detalles)", value=True)
     
     # Sección 1: Archivo CONSOLIDADO
     st.header("1. Archivo CONSOLIDADO.xlsx")
@@ -216,8 +205,11 @@ def main():
     
     # Sección 2: Listas de Empaque
     st.header("2. Listas de Empaque")
+    st.info("📋 **Formato esperado:** Encabezados en filas 14-15, fila 16 vacía, datos desde fila 17")
+    st.info("📍 **Columnas:** A=No. de Caja/PALLET, B=Número de Parte, D=Cantidad Empacada")
+    
     archivos_listas = st.file_uploader(
-        "Sube las listas de empaque (.xlsx)", 
+        "Sube las listas de empaque (.xlsx) - Mismo formato", 
         type=['xlsx'], 
         accept_multiple_files=True,
         key='listas'
@@ -234,7 +226,9 @@ def main():
             with st.spinner(f"Procesando {archivo.name}..."):
                 try:
                     df_lista = pd.read_excel(archivo)
-                    df_procesado, error = procesar_lista_empaque(df_lista, archivo.name, df_consolidado)
+                    
+                    # Usar el procesador de estructura fija
+                    df_procesado, error = procesar_lista_empaque_estructura_fija(df_lista, archivo.name, df_consolidado)
                     
                     if error:
                         errores.append(error)
@@ -242,21 +236,35 @@ def main():
                         resultados[archivo.name] = df_procesado
                         
                         if mostrar_preview:
-                            with st.expander(f"Vista previa: {archivo.name}"):
-                                st.dataframe(df_procesado.head(10))
+                            with st.expander(f"✅ Vista previa: {archivo.name}"):
+                                st.dataframe(df_procesado.head(15))
+                                st.write(f"Total registros: {len(df_procesado)}")
                 
                 except Exception as e:
                     errores.append(f"Error leyendo {archivo.name}: {str(e)}")
         
-        # Mostrar errores
+        # Mostrar resumen
+        st.header("3. Resumen del Procesamiento")
+        
+        if resultados:
+            st.success(f"✅ {len(resultados)} lista(s) procesada(s) exitosamente")
+            total_registros = sum(len(df) for df in resultados.values())
+            st.info(f"📊 Total de registros consolidados: {total_registros}")
+            
+            # Mostrar estadísticas por PALLET
+            st.subheader("📦 Distribución por PALLET")
+            todos_los_datos = pd.concat(resultados.values(), ignore_index=True)
+            conteo_pallet = todos_los_datos['NO_DE_CAJA'].value_counts()
+            st.dataframe(conteo_pallet)
+        
         if errores:
-            st.error("Errores encontrados:")
+            st.error(f"❌ {len(errores)} error(es) encontrado(s):")
             for error in errores:
                 st.write(f"• {error}")
         
         # Generar archivo final si hay resultados
         if resultados:
-            st.header("3. Archivo Final Consolidado")
+            st.header("4. Archivo Final Consolidado")
             
             # Crear Excel en memoria
             output = BytesIO()
@@ -281,13 +289,11 @@ def main():
                 label="📥 Descargar Archivo Consolidado",
                 data=output,
                 file_name=nombre_descarga,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary"
             )
             
-            st.success(f"Archivo generado: {nombre_descarga}")
-            st.info(f"Total de listas procesadas: {len(resultados)}")
-            st.info(f"Total de registros consolidados: {len(df_consolidado_final)}")
+            st.success(f"🎉 Archivo generado: {nombre_descarga}")
 
 if __name__ == "__main__":
     main()
-
