@@ -17,41 +17,35 @@ def normalizar_texto(texto):
     texto = texto.upper().replace('.', '')
     return texto
 
-def detectar_columnas_consolidado(df):
-    """Detecta automáticamente las columnas DESPACHO, COD. y DESCRIPCION"""
-    columnas = df.columns.tolist()
-    columnas_normalizadas = [normalizar_texto(col) for col in columnas]
-    
-    # Buscar DESPACHO
-    despacho_idx = None
-    for i, col in enumerate(columnas_normalizadas):
-        if 'DESPACHO' in col:
-            despacho_idx = i
-            break
-    
-    # Buscar COD o CODIGO
-    cod_idx = None
-    for i, col in enumerate(columnas_normalizadas):
-        if 'COD' in col and 'DESCRIPCION' not in col:
-            cod_idx = i
-            break
-    
-    # Buscar DESCRIPCION
-    descripcion_idx = None
-    for i, col in enumerate(columnas_normalizadas):
-        if 'DESCRIPCION' in col:
-            descripcion_idx = i
-            break
-    
-    return despacho_idx, cod_idx, descripcion_idx
-
 def procesar_archivo_consolidado(uploaded_file):
     """Procesa el archivo CONSOLIDADO.xlsx"""
     try:
         df = pd.read_excel(uploaded_file)
         
-        # Detectar columnas automáticamente
-        despacho_idx, cod_idx, descripcion_idx = detectar_columnas_consolidado(df)
+        # Buscar columnas por nombres esperados
+        columnas = df.columns.tolist()
+        columnas_normalizadas = [normalizar_texto(col) for col in columnas]
+        
+        # Buscar DESPACHO
+        despacho_idx = None
+        for i, col in enumerate(columnas_normalizadas):
+            if 'DESPACHO' in col:
+                despacho_idx = i
+                break
+        
+        # Buscar COD o CODIGO
+        cod_idx = None
+        for i, col in enumerate(columnas_normalizadas):
+            if 'COD' in col and 'DESCRIPCION' not in col:
+                cod_idx = i
+                break
+        
+        # Buscar DESCRIPCION
+        descripcion_idx = None
+        for i, col in enumerate(columnas_normalizadas):
+            if 'DESCRIPCION' in col:
+                descripcion_idx = i
+                break
         
         if despacho_idx is None or cod_idx is None or descripcion_idx is None:
             st.error("No se pudieron detectar las columnas necesarias en el archivo consolidado")
@@ -77,72 +71,48 @@ def procesar_archivo_consolidado(uploaded_file):
         st.error(f"Error al procesar archivo consolidado: {str(e)}")
         return None
 
-def procesar_lista_empaque_estructura_fija(df, nombre_archivo, df_consolidado):
-    """Procesa lista de empaque con estructura fija conocida"""
+def procesar_lista_empaque_simple(df, nombre_archivo, df_consolidado):
+    """Procesa lista de empaque con estructura fija conocida - VERSIÓN SIMPLIFICADA"""
     try:
-        st.write(f"🔍 Procesando: {nombre_archivo} (estructura fija)")
+        st.write(f"🔍 Procesando: {nombre_archivo}")
         
-        # Estructura fija conocida:
-        # - Encabezados en filas 14 y 15 (índices 13 y 14 en base 0)
-        # - Fila 16 vacía (índice 15)
-        # - Datos desde fila 17 (índice 16)
+        # ESTRUCTURA FIJA CONOCIDA:
+        # - Datos empiezan en fila 17 (índice 16 en base 0)
+        # - Columna A (0): No. de Caja/PALLET
+        # - Columna B (1): Número de Parte  
+        # - Columna D (3): Cantidad Empacada
         
         if len(df) < 17:
-            return None, f"El archivo {nombre_archivo} no tiene suficientes filas (mínimo 17 requeridas)"
+            return None, f"El archivo {nombre_archivo} no tiene suficientes filas"
         
-        # Verificar que tenemos los encabezados correctos en las filas 14 y 15
-        fila_14 = df.iloc[13].astype(str).apply(normalizar_texto).tolist()
-        fila_15 = df.iloc[14].astype(str).apply(normalizar_texto).tolist()
-        
-        st.write("Fila 14 (encabezado):", fila_14)
-        st.write("Fila 15 (encabezado):", fila_15)
-        
-        # Asignar columnas fijas según la estructura conocida
-        # Columna A (0): No. de Caja / PALLET
-        # Columna B (1): Número de Parte
-        # Columna D (3): Cantidad Empacada
-        
-        caja_idx = 0      # Columna A
-        parte_idx = 1     # Columna B  
-        cantidad_idx = 3  # Columna D
-        
-        st.write(f"Columnas fijas - Caja: {caja_idx} (A), Parte: {parte_idx} (B), Cantidad: {cantidad_idx} (D)")
-        
-        # Leer datos desde fila 17 (índice 16)
+        # Empezar directamente desde la fila 17 (índice 16)
         datos_inicio = 16
         df_datos = df.iloc[datos_inicio:].copy()
         
-        st.write(f"📊 Datos desde fila {datos_inicio + 1}, total filas: {len(df_datos)}")
+        st.write(f"📊 Leyendo datos desde fila {datos_inicio + 1}")
         
         if len(df_datos) == 0:
-            return None, f"No hay datos después de la fila 17 en {nombre_archivo}"
+            return None, f"No hay datos en {nombre_archivo}"
         
-        # Seleccionar y renombrar columnas
-        df_procesado = df_datos.iloc[:, [caja_idx, parte_idx, cantidad_idx]].copy()
+        # Tomar solo las columnas que necesitamos
+        df_procesado = df_datos.iloc[:, [0, 1, 3]].copy()  # Columnas A, B, D
         df_procesado.columns = ['NO_DE_CAJA', 'NUMERO_DE_PARTE', 'CANTIDAD_EMPACADA']
         
         # Limpiar datos
-        # Eliminar filas completamente vacías
-        df_procesado = df_procesado.dropna(how='all')
+        df_procesado = df_procesado.dropna(how='all')  # Eliminar filas completamente vacías
+        df_procesado = df_procesado.dropna(subset=['NUMERO_DE_PARTE', 'CANTIDAD_EMPACADA'])  # Eliminar filas sin datos esenciales
         
-        # Eliminar filas donde falta número de parte o cantidad
-        df_procesado = df_procesado.dropna(subset=['NUMERO_DE_PARTE', 'CANTIDAD_EMPACADA'])
-        
-        # Rellenar valores de PALLET hacia abajo (forward fill)
+        # Rellenar valores de PALLET hacia abajo
         df_procesado['NO_DE_CAJA'] = df_procesado['NO_DE_CAJA'].ffill()
         
         # Normalizar números de parte
         df_procesado['NUMERO_DE_PARTE'] = df_procesado['NUMERO_DE_PARTE'].apply(normalizar_texto)
         
-        # Convertir cantidad a numérico y limpiar
+        # Convertir cantidad a numérico
         df_procesado['CANTIDAD_EMPACADA'] = pd.to_numeric(df_procesado['CANTIDAD_EMPACADA'], errors='coerce')
         df_procesado = df_procesado.dropna(subset=['CANTIDAD_EMPACADA'])
         
-        st.write(f"✅ Datos procesados: {len(df_procesado)} registros")
-        
-        # Mostrar preview de datos procesados
-        st.write("Preview de datos procesados:")
-        st.dataframe(df_procesado.head(10))
+        st.write(f"✅ {len(df_procesado)} registros procesados")
         
         # Unir con consolidado
         df_final = pd.merge(
@@ -156,7 +126,10 @@ def procesar_lista_empaque_estructura_fija(df, nombre_archivo, df_consolidado):
         # Manejar no encontrados
         df_final['DESCRIPCION'] = df_final['DESCRIPCION'].fillna('NO ENCONTRADO')
         
-        # Agregar columnas adicionales
+        # Eliminar columna COD duplicada
+        df_final = df_final.drop('COD', axis=1)
+        
+        # Agregar columnas adicionales vacías
         columnas_adicionales = ['CANTIDAD_FISICA', 'U/M', 'U/M_POR_CADA', 'ORDEN_DE_PRODUCCION', 'LOTE', 'OBSERVACION']
         for col in columnas_adicionales:
             df_final[col] = ""
@@ -165,27 +138,29 @@ def procesar_lista_empaque_estructura_fija(df, nombre_archivo, df_consolidado):
         columnas_ordenadas = ['NO_DE_CAJA', 'NUMERO_DE_PARTE', 'DESCRIPCION', 'CANTIDAD_EMPACADA'] + columnas_adicionales
         df_final = df_final[columnas_ordenadas]
         
-        st.write("✅ Lista procesada exitosamente con estructura fija")
         return df_final, None
         
     except Exception as e:
-        st.error(f"❌ Error procesando {nombre_archivo} con estructura fija: {str(e)}")
-        import traceback
-        st.write("Detalles del error:", traceback.format_exc())
         return None, f"Error al procesar {nombre_archivo}: {str(e)}"
 
 def main():
     st.set_page_config(page_title="Consolidador de Listas de Empaque", layout="wide")
     
-    st.title("📦 Consolidador de Listas de Empaque - ESTRUCTURA FIJA")
-    st.markdown("**Estructura esperada:** Encabezados en filas 14-15, datos desde fila 17, columnas A/B/D")
+    st.title("📦 Consolidador de Listas de Empaque")
+    st.markdown("### Estructura Fija: Datos desde fila 17, Columnas A/B/D")
     
-    # Sidebar para configuraciones
-    with st.sidebar:
-        st.header("Configuración")
-        mostrar_preview = st.checkbox("Mostrar vista previa", value=True)
-        mostrar_consolidado_preview = st.checkbox("Mostrar preview del consolidado", value=True)
-        modo_debug = st.checkbox("Modo Debug (muestra detalles)", value=True)
+    # Información de estructura
+    with st.expander("ℹ️ Estructura Esperada", expanded=True):
+        st.markdown("""
+        **Formato de Listas de Empaque:**
+        - 📍 **Encabezados:** Filas 14-15
+        - 📍 **Fila vacía:** 16
+        - 📍 **Datos:** Desde fila 17
+        - 📍 **Columnas:**
+          - A: No. de Caja/PALLET
+          - B: Número de Parte  
+          - D: Cantidad Empacada
+        """)
     
     # Sección 1: Archivo CONSOLIDADO
     st.header("1. Archivo CONSOLIDADO.xlsx")
@@ -199,24 +174,21 @@ def main():
     if archivo_consolidado is not None:
         df_consolidado = procesar_archivo_consolidado(archivo_consolidado)
         
-        if df_consolidado is not None and mostrar_consolidado_preview:
-            st.subheader("Vista previa del archivo consolidado")
+        if df_consolidado is not None:
+            st.subheader("Vista previa del consolidado")
             st.dataframe(df_consolidado.head(10))
     
     # Sección 2: Listas de Empaque
     st.header("2. Listas de Empaque")
-    st.info("📋 **Formato esperado:** Encabezados en filas 14-15, fila 16 vacía, datos desde fila 17")
-    st.info("📍 **Columnas:** A=No. de Caja/PALLET, B=Número de Parte, D=Cantidad Empacada")
-    
     archivos_listas = st.file_uploader(
-        "Sube las listas de empaque (.xlsx) - Mismo formato", 
+        "Sube las listas de empaque (.xlsx)", 
         type=['xlsx'], 
         accept_multiple_files=True,
         key='listas'
     )
     
     if df_consolidado is not None and archivos_listas:
-        st.success(f"{len(archivos_listas)} archivo(s) de lista de empaque cargado(s)")
+        st.success(f"✅ {len(archivos_listas)} archivo(s) cargado(s)")
         
         # Procesar listas
         resultados = {}
@@ -226,52 +198,36 @@ def main():
             with st.spinner(f"Procesando {archivo.name}..."):
                 try:
                     df_lista = pd.read_excel(archivo)
-                    
-                    # Usar el procesador de estructura fija
-                    df_procesado, error = procesar_lista_empaque_estructura_fija(df_lista, archivo.name, df_consolidado)
+                    df_procesado, error = procesar_lista_empaque_simple(df_lista, archivo.name, df_consolidado)
                     
                     if error:
                         errores.append(error)
                     else:
                         resultados[archivo.name] = df_procesado
-                        
-                        if mostrar_preview:
-                            with st.expander(f"✅ Vista previa: {archivo.name}"):
-                                st.dataframe(df_procesado.head(15))
-                                st.write(f"Total registros: {len(df_procesado)}")
+                        st.success(f"✅ {archivo.name}: {len(df_procesado)} registros")
                 
                 except Exception as e:
                     errores.append(f"Error leyendo {archivo.name}: {str(e)}")
         
-        # Mostrar resumen
-        st.header("3. Resumen del Procesamiento")
-        
+        # Mostrar resultados
         if resultados:
-            st.success(f"✅ {len(resultados)} lista(s) procesada(s) exitosamente")
+            st.header("3. Resultados")
+            
             total_registros = sum(len(df) for df in resultados.values())
-            st.info(f"📊 Total de registros consolidados: {total_registros}")
+            st.success(f"🎉 Procesamiento completado: {len(resultados)} archivos, {total_registros} registros")
             
-            # Mostrar estadísticas por PALLET
-            st.subheader("📦 Distribución por PALLET")
-            todos_los_datos = pd.concat(resultados.values(), ignore_index=True)
-            conteo_pallet = todos_los_datos['NO_DE_CAJA'].value_counts()
-            st.dataframe(conteo_pallet)
-        
-        if errores:
-            st.error(f"❌ {len(errores)} error(es) encontrado(s):")
-            for error in errores:
-                st.write(f"• {error}")
-        
-        # Generar archivo final si hay resultados
-        if resultados:
-            st.header("4. Archivo Final Consolidado")
+            # Mostrar preview del primer archivo
+            primer_archivo = list(resultados.keys())[0]
+            st.subheader(f"Vista previa: {primer_archivo}")
+            st.dataframe(resultados[primer_archivo].head(10))
             
-            # Crear Excel en memoria
+            # Generar archivo final
+            st.header("4. Descargar Archivo Consolidado")
+            
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
                 # Hojas individuales
                 for nombre, df in resultados.items():
-                    # Limpiar nombre de hoja (máx 31 caracteres, sin caracteres inválidos)
                     nombre_hoja = re.sub(r'[\\/*?:\[\]]', '', nombre)[:31]
                     df.to_excel(writer, sheet_name=nombre_hoja, index=False)
                 
@@ -292,8 +248,11 @@ def main():
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary"
             )
-            
-            st.success(f"🎉 Archivo generado: {nombre_descarga}")
+        
+        if errores:
+            st.error("Errores encontrados:")
+            for error in errores:
+                st.write(f"• {error}")
 
 if __name__ == "__main__":
     main()
