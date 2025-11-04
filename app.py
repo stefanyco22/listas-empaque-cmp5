@@ -71,9 +71,15 @@ if st.button("🚀 Procesar Listas de Empaque"):
                 if errores:
                     st.warning("\n".join(errores))
 
-                writer.save()
-                output = writer.book.filename
-                st.download_button("📥 Descargar Excel Consolidado",
-                                   data=writer.book.filename.getvalue(),
-                                   file_name=f"LISTAS_DE_EMPAQUE_CMP_{date.today()}.xlsx",
-                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                # Guardar el contenido en memoria
+                writer.close()
+                output = writer.book.filename.getvalue()
+
+# Botón de descarga
+st.download_button(
+    "📥 Descargar Excel Consolidado",
+    data=output,
+    file_name=f"LISTAS_DE_EMPAQUE_CMP_{date.today()}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
